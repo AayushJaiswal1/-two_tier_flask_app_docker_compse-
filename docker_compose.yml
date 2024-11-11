@@ -1,0 +1,56 @@
+version: "3.8"  # Specify the Docker Compose version
+
+services:
+  # MySQL database service
+  mysql:
+    image: mysql:5.7  # Use the MySQL version 5.7 image
+    container_name: mysql  # Name the container "mysql"
+    environment:
+      MYSQL_ROOT_PASSWORD: root  # Root password for MySQL
+      MYSQL_DATABASE: devops     # Database name to create on startup
+      MYSQL_USER: admin          # Database user name to create
+      MYSQL_PASSWORD: admin      # Password for the database user
+    volumes:
+      - ./mysql-data:/var/lib/mysql  # Persist MySQL data on the host machine in the "mysql-data" folder
+      - ./message.sql:/docker-entrypoint-initdb.d/message.sql  # Initialize database with "message.sql" on first run
+    networks:
+      - twotier  # Connect to the custom network "twotier"
+
+    # Health check to monitor MySQL container readiness
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]  # Command to check MySQL status
+      interval: 10s    # Check every 10 seconds
+      timeout: 5s      # Health check times out after 5 seconds
+      retries: 5       # Retry up to 5 times before marking as unhealthy
+      start_period: 60s  # Wait 60 seconds before starting health checks (allows MySQL to initialize)
+
+  # Flask application service
+  flask-app:
+    build:
+      context: .  # Build from the current directory
+    container_name: flask-app  # Name the container "flask-app"
+    ports:
+      - "5000:5000"  # Map port 5000 on the host to port 5000 in the container
+    environment:
+      MYSQL_HOST: mysql  # Set MySQL host to "mysql" (matches the MySQL container name)
+      MYSQL_USER: root   # MySQL user for the app to connect to the database
+      MYSQL_PASSWORD: root  # Password for MySQL user
+      MYSQL_DB: devops      # Name of the MySQL database to use
+    depends_on:
+      - mysql  # Ensure the MySQL container starts before this one
+    networks:
+      - twotier  # Connect to the custom network "twotier"
+    restart: always  # Restart the container automatically if it stops
+
+    # Health check to monitor Flask application readiness
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]  # Check if Flask app responds on /health endpoint
+      interval: 10s    # Check every 10 seconds
+      timeout: 5s      # Health check times out after 5 seconds
+      retries: 5       # Retry up to 5 times before marking as unhealthy
+      start_period: 30s  # Wait 30 seconds before starting health checks (allows Flask app to initialize)
+
+# Define custom network for communication between MySQL and Flask services
+networks:
+  twotier:
+    driver: bridge  # Use the default bridge network driver
